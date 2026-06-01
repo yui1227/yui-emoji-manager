@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的雲端表情符號庫</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
+        
+        /* 緊湊模式樣式調整 */
+        .emoji-card {
+            transition: background-color 0.1s ease;
+        }
+
+        /* 刪除按鈕樣式 */
+        .delete-btn { 
+            opacity: 0; 
+            transition: opacity 0.1s ease-in-out;
+        }
+        .emoji-card:hover .delete-btn { 
+            opacity: 1; 
+        }
+
+        /* 其他動畫 */
+        .toast-enter { animation: slideUp 0.3s ease-out forwards; }
+        @keyframes slideUp {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col font-sans">
+
+    <div class="container mx-auto p-4 md:p-6 max-w-5xl flex-grow flex flex-col">
+        <!-- Header -->
+        <header class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 shrink-0">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-icons text-blue-500 text-2xl"></i>
+                <h1 class="text-2xl font-bold text-gray-700">表情符號庫</h1>
+            </div>
+            <div class="flex items-center gap-2 w-full md:w-auto">
+                <div class="relative flex-grow md:flex-grow-0">
+                    <i class="fa-solid fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm"></i>
+                    <input type="text" id="searchInput" placeholder="搜尋..." class="w-full md:w-48 pl-9 pr-3 py-1.5 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-gray-50">
+                </div>
+                <button onclick="openSettingsModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-600 p-2 rounded-md shadow-sm transition" title="設定">
+                    <i class="fa-solid fa-cog"></i>
+                </button>
+                <button onclick="openAddModal()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1.5 px-3 rounded-md shadow-sm transition whitespace-nowrap text-sm flex items-center">
+                    <i class="fa-solid fa-plus mr-1 text-xs"></i> 新增
+                </button>
+            </div>
+        </header>
+
+        <!-- API 未設定提示 -->
+        <div id="apiAlert" class="hidden mb-4 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-700 p-3 rounded text-sm shrink-0">
+            <p class="font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>尚未設定連線</p>
+            <p>請點擊右上角齒輪設定 Google Apps Script 網址。</p>
+        </div>
+
+        <!-- 讀取中提示 -->
+        <div id="loadingIndicator" class="hidden flex-col items-center justify-center py-12 shrink-0">
+            <div class="loader mb-3 w-8 h-8 border-2"></div>
+            <p class="text-gray-500 text-sm" id="loadingText">同步中...</p>
+        </div>
+
+        <!-- Emoji Grid Container (可滾動區域) -->
+        <div class="flex-grow overflow-y-auto bg-gray-100 rounded-lg p-3 shadow-inner border border-gray-200">
+             <!-- Emoji Grid (使用 CSS Grid auto-fill 實現緊湊排列) -->
+            <div id="emojiGrid" class="grid grid-cols-[repeat(auto-fill,minmax(44px,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(52px,1fr))] gap-1.5 place-content-start">
+                <!-- 內容由 JS 動態生成 -->
+            </div>
+            
+            <!-- 空狀態 -->
+            <div id="emptyState" class="hidden flex flex-col items-center justify-center py-16 text-gray-400 h-full">
+                <i class="fa-solid fa-ghost text-4xl mb-3 opacity-50"></i>
+                <p class="text-lg font-medium mb-1">這裡一片荒蕪...</p>
+                <p class="text-sm">右上角新增，或直接 Ctrl+V 貼上圖片！</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Emoji Modal -->
+    <div id="addModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4 px-4 py-6 sm:p-0">
+        <div class="bg-white rounded-lg shadow-xl p-5 w-full max-w-md relative mx-auto">
+            <button onclick="closeAddModal()" class="absolute top-3 right-3 text-gray-400 hover:text-gray-700">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+            <h2 class="text-xl font-bold mb-4 text-gray-800">新增表情</h2>
+            
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">名稱</label>
+                    <input type="text" id="newEmojiName" placeholder="幫它取個名字..." class="w-full px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                </div>
+                
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:bg-gray-50 transition relative bg-gray-50 cursor-pointer group">
+                    <input type="file" id="fileInput" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
+                    <div id="previewContainer" class="hidden flex flex-col items-center justify-center h-32">
+                        <img id="imagePreview" src="" alt="預覽" class="max-h-full max-w-full object-contain rounded shadow-sm">
+                    </div>
+                    <div id="uploadPrompt" class="flex flex-col items-center justify-center h-32 group-hover:text-blue-500 transition-colors">
+                        <i class="fa-solid fa-cloud-arrow-up text-3xl text-gray-300 mb-2 group-hover:text-blue-400"></i>
+                        <p class="text-gray-600 font-medium text-sm">點擊或拖曳圖片至此</p>
+                        <p class="text-xs text-gray-400 mt-1">也支援 Ctrl+V 直接貼上</p>
+                    </div>
+                </div>
+
+                <button id="submitAddBtn" onclick="submitEmoji()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md flex justify-center items-center gap-2 transition text-sm">
+                    <span><i class="fa-solid fa-upload mr-1"></i> 上傳</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl p-5 w-full max-w-md relative">
+            <button onclick="closeSettingsModal()" class="absolute top-3 right-3 text-gray-400 hover:text-gray-700">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+            <h2 class="text-xl font-bold mb-4 text-gray-800"><i class="fa-solid fa-cog mr-2 text-gray-500"></i>設定</h2>
+            
+            <div class="space-y-3">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">後端網址 (Web App URL)</label>
+                    <input type="text" id="apiUrlInput" placeholder="https://script.google.com/..." class="w-full px-3 py-2 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-mono bg-gray-50">
+                     <p class="text-xs text-gray-500 mt-1">貼上部署 Google Apps Script 取得的網址。</p>
+                </div>
+                
+                <button onclick="saveSettings()" class="w-full bg-gray-800 hover:bg-gray-900 text-white font-bold py-2 px-4 rounded-md transition text-sm">
+                    儲存並連線
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-md shadow-lg hidden flex items-center gap-2 z-50 text-sm font-medium">
+        <i class="fa-solid fa-circle-check text-green-400"></i>
+        <span id="toastMsg">已複製！</span>
+    </div>
+
+    <!-- 獨立的 Global Tooltip (解決被遮擋的問題) -->
+    <div id="globalTooltip" class="fixed bg-gray-900 text-white text-xs font-semibold py-1 px-2 rounded shadow-lg z-[100] pointer-events-none transform -translate-x-1/2 -translate-y-full transition-opacity duration-150 opacity-0" style="left: -999px; top: -999px;"></div>
+
+    <script>
+        let emojisData = [];
+        let base64ImageToUpload = null;
+        let mimeTypeToUpload = null;
+        
+        const getApiUrl = () => localStorage.getItem('emoji_api_url') || '';
+
+        function init() {
+            const apiUrl = getApiUrl();
+            if (!apiUrl) {
+                document.getElementById('apiAlert').classList.remove('hidden');
+                document.getElementById('emptyState').classList.remove('hidden');
+            } else {
+                document.getElementById('apiAlert').classList.add('hidden');
+                fetchEmojis();
+            }
+            // 替換預設的錯誤圖片
+            window.addEventListener('error', function(e) {
+                if (e.target.tagName === 'IMG') {
+                    e.target.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiM5YzlDOUMiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSIxMCIvPjxsaW5lIHgxPSIxMiIgeTE9IjgiIHgyPSIxMiIgeTI9IjEyIi8+PGxpbmUgeDE9IjEyIiB5MT0iMTYiIHgyPSIxMi4wMSIgeTI9IjE2Ii8+PC9zdmc+';
+                    e.target.classList.add('p-2', 'opacity-50'); // 錯誤圖示加點邊距和透明度
+                }
+            }, true);
+        }
+
+        async function fetchEmojis() {
+            const apiUrl = getApiUrl();
+            if (!apiUrl) return;
+
+            showLoading('同步資料中...');
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) throw new Error('Network response was not ok');
+                emojisData = await response.json();
+                renderGrid(emojisData);
+            } catch (error) {
+                console.error("Fetch error:", error);
+                showToast("連線失敗，請檢查設定", true);
+                renderGrid([]); // 清空或顯示空狀態
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function renderGrid(data) {
+            const grid = document.getElementById('emojiGrid');
+            const emptyState = document.getElementById('emptyState');
+            
+            grid.innerHTML = '';
+            
+            if (data.length === 0) {
+                emptyState.classList.remove('hidden');
+                grid.classList.add('hidden'); // 隱藏網格容器
+            } else {
+                emptyState.classList.add('hidden');
+                grid.classList.remove('hidden');
+                // 反轉陣列，讓新的顯示在前面
+                [...data].reverse().forEach(emoji => {
+                    const card = document.createElement('div');
+                    // 緊湊版樣式: 方形, 居中, Hover背景變色, 小內距, 鼠標手勢
+                    card.className = 'emoji-card relative group aspect-square flex items-center justify-center rounded-md hover:bg-gray-300 p-1 transition-colors cursor-pointer';
+                    card.onclick = () => copyImageToClipboard(emoji.url);
+                    
+                    card.innerHTML = `
+                        <!-- 刪除按鈕: 更小, 右上角, Hover才顯示 -->
+                        <button onclick="event.stopPropagation(); deleteEmoji('${emoji.id}', '${emoji.name}')" class="delete-btn absolute -top-1 -right-1 bg-gray-700 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-sm transition-colors z-10" title="刪除">
+                            <i class="fa-solid fa-xmark text-[10px]"></i>
+                        </button>
+                        <!-- 圖片: 填滿容器, 保持比例 -->
+                        <img src="${emoji.url}" alt="${emoji.name}" class="w-full h-full object-contain pointer-events-none">
+                    `;
+
+                    // 全局 Tooltip 滑鼠事件
+                    card.addEventListener('mouseenter', () => {
+                        const tooltip = document.getElementById('globalTooltip');
+                        const rect = card.getBoundingClientRect();
+                        tooltip.innerText = emoji.name;
+                        // 計算位置 (置中於卡片上方)
+                        tooltip.style.left = rect.left + (rect.width / 2) + 'px';
+                        tooltip.style.top = (rect.top - 6) + 'px';
+                        tooltip.style.opacity = '1';
+                    });
+                    card.addEventListener('mouseleave', () => {
+                        const tooltip = document.getElementById('globalTooltip');
+                        tooltip.style.opacity = '0';
+                        // 延遲將 tooltip 移出畫面，避免動畫突兀
+                        setTimeout(() => { 
+                            if (tooltip.style.opacity === '0') tooltip.style.left = '-999px'; 
+                        }, 150);
+                    });
+
+                    grid.appendChild(card);
+                });
+            }
+        }
+
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            const filtered = emojisData.filter(emp => emp.name.toLowerCase().includes(term));
+            renderGrid(filtered);
+        });
+
+        async function copyImageToClipboard(url) {
+            showToast("正在複製圖片...", false);
+            
+            try {
+                // 使用 Image 物件並設定 crossOrigin，以便能用 Canvas 讀取圖片資料
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                
+                img.onload = async () => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.naturalWidth;
+                        canvas.height = img.naturalHeight;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        
+                        // Clipboard API 寫入圖片限定為 image/png 格式 Blob
+                        canvas.toBlob(async (blob) => {
+                            if (blob) {
+                                try {
+                                    const item = new ClipboardItem({ "image/png": blob });
+                                    await navigator.clipboard.write([item]);
+                                    showToast("✅ 已成功複製圖片！");
+                                } catch (err) {
+                                    console.error("剪貼簿寫入失敗:", err);
+                                    fallbackCopyTextToClipboard(url, "複製圖片失敗，已改複製網址 (請檢查瀏覽器權限)");
+                                }
+                            }
+                        }, "image/png");
+                    } catch (err) {
+                        console.error("Canvas 轉換失敗:", err);
+                        fallbackCopyTextToClipboard(url, "無法轉換圖片資料，已改複製網址");
+                    }
+                };
+                
+                img.onerror = () => {
+                    console.error("圖片跨域載入失敗");
+                    fallbackCopyTextToClipboard(url, "圖片跨域限制，已改為複製網址");
+                };
+                
+                // 加上時間戳參數避免瀏覽器直接拿快取的圖片(這可能導致跨域錯誤)
+                img.src = url + (url.includes('?') ? '&' : '?') + 'not-from-cache=' + Date.now();
+                
+            } catch (error) {
+                console.error("複製流程錯誤:", error);
+                fallbackCopyTextToClipboard(url, "複製發生錯誤，已改為複製網址");
+            }
+        }
+
+        function fallbackCopyTextToClipboard(text, customMsg = "已複製連結 (相容模式)！") {
+            const tempInput = document.createElement('input');
+            tempInput.value = text;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            try {
+                document.execCommand('copy');
+                showToast(customMsg);
+            } catch (err) {
+                showToast("複製失敗", true);
+            }
+            document.body.removeChild(tempInput);
+        }
+
+        async function deleteEmoji(id, name) {
+            // 使用自定義的確認對話框會更像 Discord，這裡先用原生的保持簡單
+            if(!confirm(`確定要刪除「${name}」嗎？`)) return;
+            
+            const apiUrl = getApiUrl();
+            if(!apiUrl) return;
+
+            // 樂觀更新 (Optimistic UI): 先從介面上移除，失敗再加回來，感覺更快
+            const originalData = [...emojisData];
+            emojisData = emojisData.filter(e => e.id !== id);
+            renderGrid(emojisData);
+            showToast("正在刪除...", false);
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'delete', fileId: id })
+                });
+                const result = await response.json();
+                
+                if(result.success) {
+                    showToast(`已刪除「${name}」`);
+                    // 不需要 fetchEmojis了，因為已經樂觀更新
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                console.error(error);
+                showToast("刪除失敗，還原操作", true);
+                emojisData = originalData; // 還原資料
+                renderGrid(emojisData); // 還原介面
+            }
+        }
+
+        // --- 新增/設定/UI Modal 相關邏輯 (保持大致不變，僅微調樣式) ---
+
+        function openAddModal() {
+            if(!getApiUrl()) {alert("請先設定後端網址！"); return;}
+            document.getElementById('addModal').classList.remove('hidden');
+            resetAddModal();
+            document.getElementById('newEmojiName').focus();
+        }
+        function closeAddModal() { document.getElementById('addModal').classList.add('hidden'); }
+        function resetAddModal() {
+            document.getElementById('newEmojiName').value = '';
+            document.getElementById('fileInput').value = '';
+            document.getElementById('previewContainer').classList.add('hidden');
+            document.getElementById('uploadPrompt').classList.remove('hidden');
+            base64ImageToUpload = null; mimeTypeToUpload = null;
+        }
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+        function handleFileSelect(e) { const file = e.target.files[0]; if (file) processFile(file); }
+        
+        window.addEventListener('paste', e => {
+            if (!document.getElementById('addModal').classList.contains('hidden')) {
+                // 如果新增視窗已經打開，優先處理貼上到輸入框
+                if (document.activeElement.id === 'newEmojiName') return;
+            }
+
+            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+            for (let index in items) {
+                const item = items[index];
+                if (item.kind === 'file' && item.type.startsWith('image/')) {
+                    const file = item.getAsFile();
+                    openAddModal();
+                    processFile(file);
+                    e.preventDefault(); // 防止重複貼上
+                    break; 
+                }
+            }
+        });
+
+        function processFile(file) {
+            // 檢查檔案大小 (例如限制 2MB)
+            if (file.size > 2 * 1024 * 1024) {
+                alert("圖片太大囉！請選擇小於 2MB 的圖片。");
+                resetAddModal();
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const dataUrl = event.target.result;
+                const matches = dataUrl.match(/^data:(.+);base64,(.*)$/);
+                if (matches && matches.length === 3) {
+                    mimeTypeToUpload = matches[1];
+                    base64ImageToUpload = matches[2];
+                    document.getElementById('imagePreview').src = dataUrl;
+                    document.getElementById('previewContainer').classList.remove('hidden');
+                    document.getElementById('uploadPrompt').classList.add('hidden');
+                    if(!document.getElementById('newEmojiName').value) {
+                        const nameWithoutExt = file.name ? file.name.replace(/\.[^/.]+$/, "") : "";
+                        document.getElementById('newEmojiName').value = nameWithoutExt;
+                    }
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function submitEmoji() {
+            const nameInput = document.getElementById('newEmojiName');
+            const name = nameInput.value.trim();
+            const btn = document.getElementById('submitAddBtn');
+            const apiUrl = getApiUrl();
+
+            if (!name) { nameInput.focus(); showToast("請輸入名稱", true); return; }
+            if (!base64ImageToUpload) { showToast("請選擇圖片", true); return; }
+            if (!apiUrl) return;
+
+            btn.disabled = true;
+            btn.innerHTML = `<div class="loader w-4 h-4 border-2 mr-2"></div>上傳中...`;
+
+            try {
+                const payload = { action: 'add', name: name, mimeType: mimeTypeToUpload, base64: base64ImageToUpload };
+                const response = await fetch(apiUrl, { method: 'POST', body: JSON.stringify(payload) });
+                const result = await response.json();
+                if(result.success) {
+                    showToast("上傳成功！");
+                    closeAddModal();
+                    fetchEmojis();
+                } else { throw new Error(result.error || "上傳失敗"); }
+            } catch (error) {
+                console.error("Upload error:", error);
+                alert("上傳失敗：" + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<span><i class="fa-solid fa-upload mr-1"></i> 上傳</span>`;
+            }
+        }
+
+        function openSettingsModal() { document.getElementById('apiUrlInput').value = getApiUrl(); document.getElementById('settingsModal').classList.remove('hidden'); }
+        function closeSettingsModal() { document.getElementById('settingsModal').classList.add('hidden'); }
+        function saveSettings() {
+            const url = document.getElementById('apiUrlInput').value.trim();
+            localStorage.setItem('emoji_api_url', url);
+            closeSettingsModal();
+            showToast("設定已儲存");
+            init();
+        }
+
+        function showLoading(text) { document.getElementById('loadingText').innerText = text; document.getElementById('loadingIndicator').classList.remove('hidden'); document.getElementById('emojiGrid').parentNode.classList.add('opacity-50'); }
+        function hideLoading() { document.getElementById('loadingIndicator').classList.add('hidden'); document.getElementById('emojiGrid').parentNode.classList.remove('opacity-50'); }
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            const msg = document.getElementById('toastMsg');
+            const icon = toast.querySelector('i');
+            msg.innerText = message;
+            icon.className = isError ? 'fa-solid fa-circle-exclamation text-red-400' : 'fa-solid fa-circle-check text-green-400';
+            toast.classList.remove('hidden', 'toast-enter');
+            void toast.offsetWidth; toast.classList.add('toast-enter');
+            setTimeout(() => { toast.classList.add('hidden'); }, 2500);
+        }
+
+        init();
+    </script>
+</body>
+</html>
